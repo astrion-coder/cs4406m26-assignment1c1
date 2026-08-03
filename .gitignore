@@ -8,3 +8,11 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Datasets
+ebnerd_demo/
+MINDsmall_dev/
+MINDsmall_train/
+
+# Personal Updates
+updates.md
