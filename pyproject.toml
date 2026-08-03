@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "pytest>=9.1.1",
+]
 
 [project.scripts]
 cs4406m26-assignment1c1 = "cs4406m26_assignment1c1:main"
