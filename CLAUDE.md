@@ -24,4 +24,6 @@ Testing framework is pytest and for package management, uv is used.
 2. All diagrams and plots generated using matplotlib must be generated on a dark background, with #121212 as the background color. The rest of the colors on the diagram should be generated such that it complements this color well.
 
 ## Minor Notes
-1. If you run a command and the output says "Module Not Found", you can run "uv add <module-name>" to install it in the repo and modify the pyproject.toml accordingly. Just make sure to ask be before installing anything.
+1. If you run a command and the output says "Module Not Found", you can run "uv add <module-name>" to install it in the repo and modify the pyproject.toml accordingly. Just make sure to ask me before installing anything.
+
+2. Create a new file, named PROMPTS.md and anytime I write a prompt that is very important in the context of the project, write it there. And explain the context briefly and what you did there. Prompts are graded for my assignment.
