@@ -13,6 +13,7 @@ wheels/
 ebnerd_demo/
 MINDsmall_dev/
 MINDsmall_train/
+data/
 
 # Personal Updates
 updates.md

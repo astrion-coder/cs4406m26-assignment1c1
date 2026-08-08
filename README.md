@@ -205,3 +205,20 @@ uv run pytest           # run tests
 
 Exploratory notebook: [`src/explore_datasets.ipynb`](src/explore_datasets.ipynb) loads
 both datasets and displays the raw tables described above.
+
+## Rebuild the feature store (Q1)
+
+```bash
+uv run python build_pipeline.py
+```
+
+Executes [`src/build_pipeline.ipynb`](src/build_pipeline.ipynb) end-to-end: cleans and
+parses both raw datasets into the unified `articles`/`behaviors`/`history` schema
+described in `SPEC.md`, assigns a time-based `train`/`val`/`test` split, runs the
+Q9 no-future-click-leakage checks, and writes the result to
+`data/processed/{ebnerd,mind}/` (gitignored). Every step's assertions must pass or
+the rebuild aborts — see `SPEC.md` for the full design.
+
+## Dataset location
+
+dataset should be present in the local repo of the person running the code in the format as present in my local repo.
