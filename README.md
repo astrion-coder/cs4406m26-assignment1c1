@@ -219,6 +219,21 @@ Q9 no-future-click-leakage checks, and writes the result to
 `data/processed/{ebnerd,mind}/` (gitignored). Every step's assertions must pass or
 the rebuild aborts — see `SPEC.md` for the full design.
 
+## Run BM25 lexical retrieval (Q2)
+
+```bash
+uv run python bm25_retrieval.py
+```
+
+Requires the Q1 feature store to already exist. Executes
+[`src/bm25_retrieval.ipynb`](src/bm25_retrieval.ipynb) end-to-end: builds a
+from-scratch BM25 index per dataset (postings-list inverted index, in
+[`src/cs4406m26_assignment1c1/bm25.py`](src/cs4406m26_assignment1c1/bm25.py) —
+no third-party BM25 library, see `SPEC.md` for why), retrieves top-K
+candidates per user from their pre-window click history, and writes
+`bm25_topk.parquet` + `bm25_metrics.json` (recall@{50,100,200} on val/test) to
+`data/processed/{ebnerd,mind}/`.
+
 ## Dataset location
 
 dataset should be present in the local repo of the person running the code in the format as present in my local repo.

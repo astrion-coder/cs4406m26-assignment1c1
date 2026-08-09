@@ -1,9 +1,9 @@
-# Q1 Spec — Reproducible Data Pipeline
+# Assignment 1 Spec
 
-Scope: **Q1 only** (unified schema, clean/parse, temporal split, feature store, one-command
-rebuild). Q2–Q9 are out of scope for this document; see
-`assignments/Assignment1_v1.pdf` and the approved roadmap in the session plan for how Q1
-feeds into them.
+Covers Q1 (reproducible data pipeline) and Q2 (lexical/BM25 candidate generation).
+Q3–Q9 are out of scope for this document; see `assignments/Assignment1_v1.pdf`.
+
+# Q1 — Reproducible Data Pipeline
 
 ## 1. Goal
 
@@ -171,3 +171,159 @@ before running `uv add` if something unexpected comes up during implementation.
 - EB-NeRD's `subcategory` can hold multiple IDs; taking only the first is a
   simplification — acceptable for Q1 since nothing here depends on it yet, but worth
   a one-line callout in the eventual design note (Q6) if it matters later.
+
+# Q2 — Lexical Candidate Generation (BM25)
+
+## 1. Approach
+
+From-scratch BM25 (Okapi), no third-party BM25 library. Implemented as a
+proper importable module, `src/cs4406m26_assignment1c1/bm25.py` (not inline
+notebook cells like the rest of the project) — a deliberate exception to the
+"all code in notebooks" convention, since this is a reusable, unit-testable
+component with a real performance requirement (below), not a one-off analysis
+step.
+
+Two library options were evaluated and rejected before this: a hand-rolled
+implementation using `rank-bm25`'s `BM25Okapi` purely to fit/validate `idf`,
+`doc_len`, `avgdl`, paired with our own postings-list scoring. Both were
+dropped because a from-scratch implementation performs just as well without
+the extra dependency — verified below.
+
+**Performance is the reason this is hand-built rather than a call to a
+library's own scoring method.** `rank_bm25.BM25Okapi.get_scores` is O(corpus
+size) per query token — for each token it does a Python-level `doc.get(term)`
+lookup across *every* document's `doc_freqs` dict, not a sparse postings
+lookup. Measured directly on MIND's 65,238-article corpus: ~2.9 seconds for a
+single 20-title query. At the volume this pipeline needs (once per val/test
+user — tens of thousands), that extrapolates to 40+ hours. `bm25.py`'s own
+postings-list index — `term -> (doc_idx array, tf array)`, scored with
+`numpy`'s `np.add.at` over only the documents that actually contain each query
+term, then top-K selected via `np.argpartition` (not a Python-level `heapq` +
+key function, which is also slow at corpus scale) — measured at ~5ms/query on
+the same corpus: ~6 minutes extrapolated across all of MIND's val/test users,
+well under a minute for EB-NeRD's smaller corpus and user count.
+
+IDF uses the non-negative variant: `log((N - df + 0.5)/(df + 0.5) + 1)`. The
+classic Robertson/Sparck-Jones IDF goes negative for terms appearing in more
+than half the corpus; the `+1` guarantees `idf(term) >= 0` for every term.
+
+## 2. Scope
+
+Two independent BM25 indexes, one per dataset, each built over that dataset's
+full `articles` table (all articles — articles aren't split, only `behaviors`
+is). Same "shared code, separate runs per dataset" pattern as Q1.
+
+## 3. Corpus text & tokenization
+
+Corpus text is `title + " " + abstract` only — never `body` (Q2 says "titles
+and abstracts"; MIND has no body at all per the Q1 schema). `abstract` must be
+`.fillna("")`'d before concatenation: ~5.2% of MIND articles (3,415/65,238) have
+a null abstract, and naive string concatenation would propagate NaN, silently
+zeroing those articles' tokens/doc length and skewing `avgdl`. EB-NeRD has zero
+abstract nulls.
+
+Tokenizer: `re.findall(r"\w+", text.lower())`. Python's `re` is Unicode-aware by
+default, so this correctly keeps Danish `æøå`/`ÆØÅ` as word characters under
+`\w` and folds case correctly for both languages — no new dependency, no
+stemming/stopword removal. Accepted imprecision: hyphens/apostrophes split
+words (e.g. `harry's` → `harry`, `s`).
+
+## 4. Query construction
+
+Concatenate the **titles** of a user's most recent `RECENT_N_CLICKS = 20`
+clicks from `history.article_id_sequence` (a named, adjustable constant).
+`timestamp_sequence` is chronologically ascending, so "most recent N" =
+`sequence[-20:]`, the *last* N elements, not the first. Median history length
+is 71 (EB-NeRD) / 12 (MIND) — a fixed modest window keeps queries focused on
+recent interest and comparable across datasets rather than dominated by
+EB-NeRD's longer histories.
+
+Cold-start users (empty `article_id_sequence` — 0 in EB-NeRD demo, 2,122 in
+MIND) produce no query and are excluded from the recall@K aggregate, with
+their impression count reported separately per split; cold-start-vs-warm
+slicing itself is Q4's job.
+
+## 5. Candidate generation semantics
+
+BM25 retrieves its own top-K from the whole article catalog — this is not a
+re-ranking of the impression's given `article_ids_inview`. Recall@K checks
+whether `article_ids_clicked` appears in that independently-retrieved top-K.
+
+## 6. Retrieval caching
+
+Since the query depends only on the user's fixed pre-window `history`
+(identical for every impression of that user), compute `get_scores` **once
+per user** at `k=200`, then derive recall@50/@100/@200 as prefixes of that
+single sorted list. This makes `top-50 ⊆ top-100 ⊆ top-200` true by
+construction and avoids 3× redundant scoring.
+
+Only users appearing in the `val` or `test` splits of `behaviors` need
+retrieval computed (recall@K isn't reported on `train`); extending to
+train-split users is deferred to whichever of Q3/Q4 needs it.
+
+## 7. Recall@K definition
+
+Fractional multi-relevant, not binary hit/miss: `article_ids_clicked` is not
+always singleton — up to 7 clicks/impression in EB-NeRD, up to 35 in MIND (a
+third of MIND impressions have multiple clicks). Per impression:
+
+```
+recall@K(impression) = |clicked ∩ top-K| / |clicked|
+```
+
+Macro-averaged over included (non-cold-start) impressions, computed for
+`split ∈ {val, test}` × `K ∈ {50, 100, 200}`.
+
+## 8. Persistence
+
+Mirrors Q1's `manifest.json` conventions:
+
+```
+data/processed/{dataset}/bm25_topk.parquet
+  user_id                str
+  dataset                str
+  n_retrieved            int
+  retrieved_article_ids  list[str]    # score-descending
+  retrieved_scores       list[float]  # parallel to retrieved_article_ids
+data/processed/{dataset}/bm25_metrics.json
+  schema_version, build_timestamp
+  hyperparameters: {k1, b, recent_n_clicks, topk_max}
+  recall_at_k: {val: {50, 100, 200}, test: {50, 100, 200}}
+  n_impressions: {val: {total, evaluated, excluded_coldstart}, test: {...}}
+  scope: "val_test_users_only"
+```
+
+Keyed by user, not impression, to avoid storing duplicate retrieval results
+across a user's many impressions.
+
+## 9. Implementation shape
+
+The BM25 implementation itself (`tokenize`, `build_index`, `get_scores`,
+`top_k`) lives in `src/cs4406m26_assignment1c1/bm25.py`, a plain importable
+module (see §1 for why this one component breaks from the notebook-only
+convention). Everything else — loading the feature store, query construction,
+retrieval caching, evaluation, persistence — is notebook cells, in
+`src/bm25_retrieval.ipynb`, following `build_pipeline.ipynb`'s
+markdown/feature/test cell convention, with `bm25_retrieval.py` as the
+one-command entrypoint (mirrors `build_pipeline.py`'s `nbconvert --execute
+--inplace` wrapper). Cell sequence:
+
+1. Setup — imports (incl. `from cs4406m26_assignment1c1.bm25 import ...`),
+   load feature store, constants.
+2. Tokenizer smoke test — Danish/English samples, `None`/empty-string handling
+   (exercises the imported `tokenize`, not a notebook-local redefinition).
+3. Per-dataset tokenized document corpus (`title+abstract`) + test — covers the
+   `abstract.fillna("")` case explicitly using a known null-abstract MIND row.
+4. Build a `BM25Index` per dataset (`build_index`) + test — cross-check
+   `avgdl`/`doc_len` against independently-computed values, and a couple of
+   `idf` values against a by-hand calculation on a small sample.
+5. Top-K retrieval smoke test (`top_k`) — length, descending order, nesting
+   invariant (`top200[:50] == top50`), empty query → `[]`.
+6. Query construction from history + test — cold-start → `[]`; window correctly
+   takes the *last* N clicks, not the first N.
+7. Per-user retrieval cache, restricted to val/test users + test — cache keys
+   are a subset of val∪test user_ids; cold-start count cross-checked
+   independently per dataset (not hardcoded, since EB-NeRD's true count is 0).
+8. Recall@K evaluation + test — monotonic `recall@50 ≤ recall@100 ≤ recall@200`;
+   `n_evaluated + n_excluded == n_total`; values in `[0,1]`.
+9. Persist `bm25_topk.parquet` + `bm25_metrics.json` + round-trip test.

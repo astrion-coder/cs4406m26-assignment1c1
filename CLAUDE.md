@@ -27,3 +27,5 @@ Testing framework is pytest and for package management, uv is used.
 1. If you run a command and the output says "Module Not Found", you can run "uv add <module-name>" to install it in the repo and modify the pyproject.toml accordingly. Just make sure to ask me before installing anything.
 
 2. Create a new file, named PROMPTS.md and anytime I write a prompt that is very important in the context of the project, write it there. And explain the context briefly and what you did there. Prompts are graded for my assignment.
+
+3. SPEC.md structure: The SPEC.md file is a pure technical spec. Not a log of throught process. Things like context, thought process, etc should not be part of SPEC.md. It should only contain implementation details.

@@ -17,3 +17,11 @@ data/
 
 # Personal Updates
 updates.md
+
+# Latex Stuff
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz

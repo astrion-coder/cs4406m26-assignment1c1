@@ -80,3 +80,56 @@ downstream parquet file, now reflects the fix; re-executed the full pipeline to
 confirm. Lesson: when verifying a source-code fix, check the source (or its
 directly executed output), not a downstream artifact that can independently mask
 the same symptom.
+
+### "update SPEC.md with Q2 from the assignment"
+
+Extended `SPEC.md` from Q1-only to also cover Q2 (BM25 lexical retrieval), design
+only (no code yet). A Plan agent produced a fully hand-rolled BM25 design (own
+inverted index, IDF, scoring) verified against real data — tokenization behavior
+on Danish text, null rates, click-count distributions, per-split user counts.
+Asked the user to choose between that hand-rolled approach (matches the
+assignment's literal "build an inverted index" wording, no new dependency) and
+using a library; **the user chose the `rank-bm25` library** instead, so the spec
+was rewritten around `BM25Okapi`, with an explicit honest note that the library
+doesn't expose a true sparse inverted index internally (dense per-term numpy
+scoring instead) — mitigated by adding an inspection step that surfaces the
+library's internal `idf`/`doc_freqs`/`doc_len`/`avgdl` attributes as the index
+artifact, rather than hiding the gap between the assignment's wording and the
+chosen implementation.
+
+### "don't add context like this in the SPEC.md. It should only contain the details of the implementation... this like current work, what the plan agent did, responses to AskUserQuestion, etc are not part of SPEC.md"
+
+Important standing correction to how `SPEC.md` should read: it's a pure technical
+spec, not a narrated log of the planning process. Rewrote the Q2 plan/content to
+strip all meta-narrative ("the user chose", "a Plan agent verified", "this task
+does X") and state every design decision as plain fact, matching Q1's existing
+tone exactly. This distinction — process narrative belongs in the plan file or
+`PROMPTS.md`, never in `SPEC.md` itself — applies to all future spec edits.
+
+### "Start implementing Q2"
+
+Implemented the (then rank-bm25-based) Q2 spec: added the dependency, built
+`src/bm25_retrieval.ipynb`, and ran it. It never finished — killed after 10
+minutes. Benchmarked the actual bottleneck rather than guessing: a single
+`BM25Okapi.get_scores` call on MIND's 65k-article corpus took ~2.9 seconds,
+because the library does a Python-level dict lookup across every document per
+query token instead of a sparse postings lookup — at ~70,000 required calls
+(once per val/test user), that's 40+ hours. Fixed by building a real
+postings-list inverted index (`term -> (doc_idx, tf)` arrays, scored via
+`numpy`'s `np.add.at`), sourcing `idf`/`doc_len`/`avgdl` from the fitted
+library object for cross-checking — measured at ~5ms/call, a ~1000x speedup.
+
+### "ok do one thing, dont use rank_bm25, do a simple from scratch implementation of bm25, in module format, and see if it is faster or not"
+
+Given the library was already reduced to just supplying statistics (the actual
+scoring was hand-built for performance), the user asked to drop it entirely
+and reimplement BM25 fully from scratch, as a proper importable module rather
+than notebook cells — a deliberate exception to the project's usual
+"all code in notebooks" rule for this one reusable, performance-sensitive
+component. Built `src/cs4406m26_assignment1c1/bm25.py` (postings index, IDF,
+scoring, top-K), benchmarked it standalone (~5ms/query on MIND, matching the
+hybrid approach's speed), confirmed with the user before wiring it into the
+notebook, then removed the `rank-bm25` dependency, rewrote
+`src/bm25_retrieval.ipynb` and `SPEC.md`'s Q2 section around it, and reran the
+full pipeline successfully (all test cells pass; recall@K monotonic and
+bounded in [0,1] for both datasets).
