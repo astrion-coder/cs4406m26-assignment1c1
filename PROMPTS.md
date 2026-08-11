@@ -133,3 +133,74 @@ notebook, then removed the `rank-bm25` dependency, rewrote
 `src/bm25_retrieval.ipynb` and `SPEC.md`'s Q2 section around it, and reran the
 full pipeline successfully (all test cells pass; recall@K monotonic and
 bounded in [0,1] for both datasets).
+
+### "Update SPEC.md with specs for all the other Qs in the assignment"
+
+Extended `SPEC.md` from Q1+Q2 to cover Q3–Q9, design only (no code). A Plan
+agent designed Q3 (embeddings) and Q4 (eval harness) together, verified
+against real data throughout — e.g. it identified and measured that Q4's
+AUC/MRR/nDCG can't reuse Q2/Q3's persisted top-K lists (candidate-generation
+framing) and instead need an on-the-fly re-scoring adapter over each
+impression's own `article_ids_inview` (re-ranking framing) — a real
+reconciliation between the two question's evaluation setups, not just style
+matching. The user was asked to pick Q3's embedding-source strategy (EB-NeRD
+has provided pretrained artifacts, MIND has none) and chose one uniform
+method for both datasets over an asymmetric or Colab-deferred approach.
+Q5 (Codabench submission) needed external research — fetched both
+competition pages directly rather than guessing a submission format; both
+turned out to be JS-rendered SPAs requiring a login to see, so the spec
+states that limitation explicitly instead of inventing a plausible-looking
+format. Also noticed `design_note.tex`/`.pdf` already existed in the repo
+(not created by this session) and grounded Q6's spec in that existing
+skeleton rather than proposing a new location.
+
+### "Start implementing Q3"
+
+Before installing anything, asked whether to proceed with the planned
+`sentence-transformers`+`torch` local benchmark (per SPEC.md's Q3 draft) or
+skip to the lighter TF-IDF+SVD fallback. The user redirected entirely: don't
+benchmark locally at all — build a Colab notebook that computes the
+embeddings on a GPU there, downloaded back and placed locally, so the local
+machine only ever does inference/retrieval math, never model
+training/encoding. This matches `CLAUDE.md`'s own tech-stack note (heavy
+compute belongs in Colab) better than the original local-benchmark plan did.
+Built `src/compute_embeddings_colab.ipynb` (upload articles.parquet for both
+datasets, encode with a GPU-loaded multilingual XLM-RoBERTa-based model,
+download the resulting embeddings) with step-by-step usage instructions
+inline and in `README.md`; syntax-checked every code cell since it can't be
+executed locally (needs `google.colab` + a GPU). Rewrote SPEC.md's Q3 §1
+around this split: Colab computes embeddings (no local speed constraint,
+since GPU removes the concern that drove Q2's benchmark-first discipline),
+local repo stays at zero new ML dependencies and only reads the resulting
+parquet files.
+
+### "why are the embeddings in .parquet format? shouldnt they be in .vec format?"
+
+A genuine format-choice question, not a correction — explained the tradeoff
+(parquet: consistent with every other artifact this pipeline produces,
+typed/schema-enforced, carries the extra `dataset` column naturally; `.vec`:
+the standard word2vec-style IR interchange format, human-greppable, and what
+MIND's own provided KG embeddings happen to use — though that's just the
+legacy format Microsoft's original TransE tooling exported, not a convention
+this project chose, and those files aren't even used per Q3's design) and
+asked whether there was a specific downstream interoperability reason (e.g.
+loading into `gensim`) before proposing to actually change it. The user's
+next message moved on to a different, larger change (Colab → Kaggle) instead
+of answering this, so the format stayed parquet — worth re-raising if it
+resurfaces.
+
+### "ok nvm i wont use colab, i'll use kaggle, so modify everything accordingly"
+
+Platform swap for Q3's hosted-GPU embedding step: replaced
+`src/compute_embeddings_colab.ipynb` with `src/compute_embeddings_kaggle.ipynb`
+(deleted the old file rather than leaving both). Worked out the real
+mechanical differences rather than assuming Kaggle mirrors Colab's API —
+Kaggle has no in-notebook upload/download calls (`google.colab.files.*`);
+input comes from a Dataset attached via "+ Add Data" under
+`/kaggle/input/...` before the notebook runs, and output is anything written
+to `/kaggle/working/`, downloaded from the run's Output tab after "Save &
+Run All". Also swapped GPU/internet setup instructions (Kaggle's Internet
+toggle defaults off, unlike Colab, and is required for the `pip install` +
+model download to work). Updated `SPEC.md` Q3 §1/§7 and `README.md`'s Q3
+section to match, and grepped all three files afterward to confirm no
+leftover Colab references remained.

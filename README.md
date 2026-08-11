@@ -234,6 +234,29 @@ candidates per user from their pre-window click history, and writes
 `bm25_topk.parquet` + `bm25_metrics.json` (recall@{50,100,200} on val/test) to
 `data/processed/{ebnerd,mind}/`.
 
+## Compute article embeddings (Q3, prerequisite — run on Kaggle)
+
+Article embeddings are computed on a GPU on Kaggle, not locally — see
+`SPEC.md` Q3 §1 for why. Steps:
+
+1. Rename local copies of `data/processed/ebnerd/articles.parquet` and
+   `data/processed/mind/articles.parquet` to `ebnerd_articles.parquet` /
+   `mind_articles.parquet`, then upload both together as one private Kaggle
+   Dataset (Kaggle → New Notebook → **+ Add Data → Upload → New Dataset**).
+2. Import [`src/compute_embeddings_kaggle.ipynb`](src/compute_embeddings_kaggle.ipynb)
+   into a Kaggle Notebook (File → Import Notebook).
+3. In the notebook's Settings (right sidebar): **Accelerator → GPU T4 x2**
+   (or P100), **Internet → On**.
+4. **Save Version → Save & Run All (Commit)**. Once finished, open that
+   version's **Output** tab and download `ebnerd_article_embeddings.parquet`
+   and `mind_article_embeddings.parquet`.
+5. Move them into the local repo as `data/processed/ebnerd/article_embeddings.parquet`
+   and `data/processed/mind/article_embeddings.parquet`.
+
+The local repo never installs `torch`/`sentence-transformers` — once these
+two files exist, everything downstream runs locally with the existing
+numpy/pandas/pyarrow dependencies only.
+
 ## Dataset location
 
 dataset should be present in the local repo of the person running the code in the format as present in my local repo.
