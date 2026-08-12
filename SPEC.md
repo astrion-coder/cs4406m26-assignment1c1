@@ -126,7 +126,7 @@ with this cell sequence (each numbered item = title/feature/test cell triple):
 1. Load raw EB-NeRD → unify to `articles` / `behaviors` / `history` (three
    title/feature/test triples, one per table)
 2. Load raw MIND → unify to `articles` / `behaviors` / `history` (three more triples)
-3. Temporal split — apply the cutoffs from §3, add `split` column to each dataset's
+3. Temporal split — apply the cutoffs from #3, add `split` column to each dataset's
    `behaviors` table; test asserts per-split time ranges are non-overlapping and
    monotonically ordered `train < val < test` (this doubles as the Q9 leakage
    boundary test for split-level leakage)
@@ -141,7 +141,7 @@ with this cell sequence (each numbered item = title/feature/test cell triple):
    all of their impression rows (train+dev combined) — this is what proves history
    is a fixed pre-window snapshot rather than something that could be accidentally
    reconstructed per-impression from later data. Verified on real data: 0/91,935
-   users violate this. This check is already required to build `mind_history` (§2
+   users violate this. This check is already required to build `mind_history` (#2
    step 6) and is additionally asserted as an explicit test here.
 5. Write feature store — serialize all six parquet files + two manifests to
    `data/processed/`
@@ -300,7 +300,7 @@ across a user's many impressions.
 
 The BM25 implementation itself (`tokenize`, `build_index`, `get_scores`,
 `top_k`) lives in `src/cs4406m26_assignment1c1/bm25.py`, a plain importable
-module (see §1 for why this one component breaks from the notebook-only
+module (see #1 for why this one component breaks from the notebook-only
 convention). Everything else — loading the feature store, query construction,
 retrieval caching, evaluation, persistence — is notebook cells, in
 `src/bm25_retrieval.ipynb`, following `build_pipeline.ipynb`'s
@@ -327,8 +327,6 @@ one-command entrypoint (mirrors `build_pipeline.py`'s `nbconvert --execute
 8. Recall@K evaluation + test — monotonic `recall@50 ≤ recall@100 ≤ recall@200`;
    `n_evaluated + n_excluded == n_total`; values in `[0,1]`.
 9. Persist `bm25_topk.parquet` + `bm25_metrics.json` + round-trip test.
-
-# Manual Review Upto Here
 
 # Q3 — Semantic Candidate Generation (Embeddings)
 
@@ -369,7 +367,7 @@ environment. The split:
   manual-prerequisite pattern as Q1's raw dataset downloads — Part 0 of the
   assignment already requires a manual download step before the one-command
   rebuild can run).
-- Everything downstream (§2–§7 below) runs locally with **zero new
+- Everything downstream (#2–#7 below) runs locally with **zero new
   dependencies** — `numpy`/`pandas`/`pyarrow` (already in `pyproject.toml`)
   are sufficient once the embedding vectors already exist as a parquet file;
   the local repo never imports `torch` or `sentence-transformers`.
@@ -392,7 +390,7 @@ once.
 Mean-pool the embeddings of a user's most recent `RECENT_N_CLICKS = 20`
 clicks from `history.article_id_sequence` — same window Q2 uses for BM25
 query construction (`sequence[-20:]`), kept identical rather than tuned
-separately, so the lexical-vs-semantic comparison in §5 holds the input
+separately, so the lexical-vs-semantic comparison in #5 holds the input
 click window constant and only varies the scoring method. Cold-start users
 (empty `article_id_sequence`) produce no vector and are excluded from
 recall@K, reusing Q2's already-computed `coldstart_users` sets (0 EB-NeRD /
@@ -445,13 +443,13 @@ raw embedding vectors (not just top-200 candidates) to score arbitrary
 
 ## 7. Implementation shape
 
-`src/compute_embeddings_kaggle.ipynb` — the Kaggle-only notebook from §1.
+`src/compute_embeddings_kaggle.ipynb` — the Kaggle-only notebook from #1.
 Prerequisite artifact, run manually before anything below; not part of the
 local one-command pipeline.
 
 `src/cs4406m26_assignment1c1/embeddings.py` — a new local module, same
 rationale as `bm25.py` (reusable, real performance requirement — the
-batching in §2, not the embedding computation, which happened on Kaggle).
+batching in #2, not the embedding computation, which happened on Kaggle).
 Functions: `mean_pool(article_ids, embedding_lookup) -> np.ndarray`,
 `batched_top_k(query_matrix, corpus_matrix, doc_ids, k, batch_size)`,
 `cosine_similarity_subset(query_vector, corpus_matrix, doc_ids, subset_ids)`
@@ -474,10 +472,12 @@ Functions: `mean_pool(article_ids, embedding_lookup) -> np.ndarray`,
 6. Per-user retrieval cache, restricted to val/test users + test — mirrors
    `test_user_retrieval_cache`.
 7. Recall@K evaluation + test — monotonic, bounded, count-consistent.
-8. Lexical-vs-semantic comparison (§5) + test — reloaded values match both
+8. Lexical-vs-semantic comparison (#5) + test — reloaded values match both
    persisted `*_metrics.json` files.
 9. Persist `embedding_topk.parquet` + `embedding_metrics.json` +
    `article_embeddings.parquet` + round-trip test.
+
+# Manual Review upto here
 
 # Q4 — Offline Evaluation Harness
 
@@ -511,7 +511,7 @@ dict[article_id, float]`.
   the inview embeddings (trivial given inview sizes of 2–299).
 
 The persisted top-K artifacts aren't wasted — they're the correct input for
-coverage (§2) and the Q3 comparison table, which are legitimately
+coverage (#2) and the Q3 comparison table, which are legitimately
 candidate-generation-framed; ranking metrics use on-the-fly inview
 re-scoring instead. This split is the key reconciliation between Q2/Q3 and
 Q4's framings.
@@ -622,7 +622,7 @@ raw-performance requirement, just correctness.
    identical-category list; novelty ≥ 0; coverage ∈ [0,1].
 6. Slicing + test — complete, non-overlapping partition.
 7. Bootstrap CI + test — `lo ≤ point ≤ hi`.
-8. Anti-gaming confirmation cell (§7) — schema-column assertion, not new
+8. Anti-gaming confirmation cell (#7) — schema-column assertion, not new
    engineering.
 9. Persist `data/processed/{dataset}/eval_metrics.json`
    (`{method: {split: {slice: {metric: {point, ci_lo, ci_hi}}}}}`) +
@@ -715,7 +715,7 @@ needing new engineering:
   boundary test + the EB-NeRD history-timestamp / MIND history-consistency
   leakage tests, both passing on real data).
 - **Report metrics with/without serving-time-unavailable features**: per
-  Q4 §7's anti-gaming tie-in, the unified schema never carries EB-NeRD's
+  Q4 #7's anti-gaming tie-in, the unified schema never carries EB-NeRD's
   look-ahead fields (`next_read_time`, `next_scroll_percentage`) in the
   first place, so there's nothing to toggle — stated as a confirmation in
   Q4's harness output, not a separate mechanism.

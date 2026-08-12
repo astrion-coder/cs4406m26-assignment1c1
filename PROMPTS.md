@@ -168,7 +168,7 @@ Built `src/compute_embeddings_colab.ipynb` (upload articles.parquet for both
 datasets, encode with a GPU-loaded multilingual XLM-RoBERTa-based model,
 download the resulting embeddings) with step-by-step usage instructions
 inline and in `README.md`; syntax-checked every code cell since it can't be
-executed locally (needs `google.colab` + a GPU). Rewrote SPEC.md's Q3 §1
+executed locally (needs `google.colab` + a GPU). Rewrote SPEC.md's Q3 #1
 around this split: Colab computes embeddings (no local speed constraint,
 since GPU removes the concern that drove Q2's benchmark-first discipline),
 local repo stays at zero new ML dependencies and only reads the resulting
@@ -201,6 +201,53 @@ input comes from a Dataset attached via "+ Add Data" under
 to `/kaggle/working/`, downloaded from the run's Output tab after "Save &
 Run All". Also swapped GPU/internet setup instructions (Kaggle's Internet
 toggle defaults off, unlike Colab, and is required for the `pip install` +
-model download to work). Updated `SPEC.md` Q3 §1/§7 and `README.md`'s Q3
+model download to work). Updated `SPEC.md` Q3 #1/#7 and `README.md`'s Q3
 section to match, and grepped all three files afterward to confirm no
 leftover Colab references remained.
+
+### "I have dropped the output files at your specified location, now continue"
+
+Verified the two Kaggle-computed `article_embeddings.parquet` files directly
+before building anything on top of them (shape matches article counts, 768
+dims, no NaNs, no duplicate IDs, article_id sets match `articles.parquet`
+exactly) rather than assuming the hand-off worked. Built
+`src/cs4406m26_assignment1c1/embeddings.py` (mean-pool, batched brute-force
+cosine-similarity top-K) and benchmarked/sanity-checked it directly against
+the real MIND embeddings before wiring it into a notebook — same discipline
+as Q2. That benchmark surfaced a real, worth-understanding subtlety: a
+same-query top-200 result and a separately-computed top-50 result didn't
+match exactly. Root-caused it (not dismissed) — BLAS matrix multiplication
+isn't bit-exact across different batch shapes, so near-tied cosine scores
+(~6e-8 apart, float32 epsilon) can swap order between differently-shaped
+calls; confirmed a single-call result matches a naive full sort exactly, so
+the module itself is correct, and the real pipeline never compares across
+separately-shaped calls anyway (it calls once at k=200, slices prefixes for
+50/100). Documented the caveat in the function's docstring and designed the
+notebook's nesting-invariant test to only ever compare same-shaped calls, so
+it can't spuriously fail on this artifact. Built `src/embedding_retrieval.ipynb`
++ `embedding_retrieval.py` mirroring Q2's structure, including a cold-start
+cross-check against Q2's already-persisted `bm25_metrics.json` (must match
+exactly — same users, same criterion, independently recomputed in a separate
+notebook) and a lexical-vs-semantic comparison table. Ran end-to-end
+successfully; all 8 test cells pass, and the comparison table shows a
+genuine mixed result (BM25 generally ahead, embeddings win on MIND's test
+split at K=50) worth keeping for the design note.
+
+### "modify the code based on updated CLAUDE.md" (re: new rule 4 — numeric claims need a one-command README verification)
+
+`CLAUDE.md` gained a new rule: any numeric performance claim written into
+`SPEC.md` must come with a command in `README.md` that reproduces it in one
+shot. Audited `SPEC.md` for claims of that kind (a measured benchmark, not a
+persisted metric already reproducible via the existing `build_pipeline.py`/
+`bm25_retrieval.py`/`embedding_retrieval.py` commands) and found two: Q2 #1's
+BM25 timing (`rank_bm25` vs. the from-scratch module) and Q3 #2's brute-force
+matmul/top-K timing. Wrote `scripts/benchmark_bm25.py` and
+`scripts/benchmark_embeddings.py`, ran both against the real feature store to
+confirm the numbers are still in the right ballpark (BM25: ~2.8ms/query on
+MIND, ~189s extrapolated; embeddings: 11.5s matmul + 19.0s top-K = 30.5s
+total on MIND's full 65,173-user val/test population — both consistent with
+`SPEC.md`'s claims), and documented both commands in `README.md` right after
+their respective Q2/Q3 sections. The `rank_bm25` comparison itself isn't
+re-run by the script since that dependency was deliberately removed; the
+script benchmarks the shipped path only and notes how to re-add the library
+if that specific comparison point needs re-verifying.

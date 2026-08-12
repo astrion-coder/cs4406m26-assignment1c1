@@ -234,10 +234,24 @@ candidates per user from their pre-window click history, and writes
 `bm25_topk.parquet` + `bm25_metrics.json` (recall@{50,100,200} on val/test) to
 `data/processed/{ebnerd,mind}/`.
 
+Verify the from-scratch-vs-`rank_bm25` performance claim in `SPEC.md` Q2 #1
+(the reason `bm25.py` is hand-built rather than a library call):
+
+```bash
+uv run python scripts/benchmark_bm25.py
+```
+
+Times `top_k` per query (built from a sample of val/test users' real click
+history) against each dataset's real corpus and extrapolates to the full
+val/test population. Only benchmarks the shipped `bm25.py` path — the
+rejected `rank_bm25` comparison point (~2.9s/query) required a dependency
+that was removed (`uv remove rank-bm25`) once the from-scratch module proved
+faster; re-run that specific comparison only after `uv add rank-bm25`.
+
 ## Compute article embeddings (Q3, prerequisite — run on Kaggle)
 
 Article embeddings are computed on a GPU on Kaggle, not locally — see
-`SPEC.md` Q3 §1 for why. Steps:
+`SPEC.md` Q3 #1 for why. Steps:
 
 1. Rename local copies of `data/processed/ebnerd/articles.parquet` and
    `data/processed/mind/articles.parquet` to `ebnerd_articles.parquet` /
@@ -256,6 +270,34 @@ Article embeddings are computed on a GPU on Kaggle, not locally — see
 The local repo never installs `torch`/`sentence-transformers` — once these
 two files exist, everything downstream runs locally with the existing
 numpy/pandas/pyarrow dependencies only.
+
+## Run semantic (embedding) retrieval (Q3)
+
+```bash
+uv run python embedding_retrieval.py
+```
+
+Requires the Q1 feature store, Q2's `bm25_metrics.json` (for the comparison
+table), and the Kaggle-computed `article_embeddings.parquet` per dataset
+(see above) to already exist. Executes
+[`src/embedding_retrieval.ipynb`](src/embedding_retrieval.ipynb) end-to-end:
+mean-pools each user's recent click history into a query vector, retrieves
+top-K candidates via batched brute-force cosine similarity (in
+[`src/cs4406m26_assignment1c1/embeddings.py`](src/cs4406m26_assignment1c1/embeddings.py) —
+no FAISS/ANN library, see `SPEC.md` for why brute-force is fast enough at
+this scale), and writes `embedding_topk.parquet` + `embedding_metrics.json`
+(recall@{50,100,200} on val/test, plus a lexical-vs-semantic comparison
+against Q2's BM25 results) to `data/processed/{ebnerd,mind}/`.
+
+Verify the brute-force-vs-FAISS performance claim in `SPEC.md` Q3 #2 (why no
+ANN library is used):
+
+```bash
+uv run python scripts/benchmark_embeddings.py
+```
+
+Times the matmul and top-K-selection stages of `batched_top_k` separately,
+over the real, full val/test population of each dataset (no sampling).
 
 ## Dataset location
 

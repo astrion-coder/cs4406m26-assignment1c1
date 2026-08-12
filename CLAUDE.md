@@ -29,3 +29,5 @@ Testing framework is pytest and for package management, uv is used.
 2. Create a new file, named PROMPTS.md and anytime I write a prompt that is very important in the context of the project, write it there. And explain the context briefly and what you did there. Prompts are graded for my assignment.
 
 3. SPEC.md structure: The SPEC.md file is a pure technical spec. Not a log of throught process. Things like context, thought process, etc should not be part of SPEC.md. It should only contain implementation details.
+
+4. Anytime you make a numeric claim like in SPEC.md you said "~7–12s for the full MIND val/test population (65,173 users) at the matmul step, ~19–40s for top-K selection — under two minutes total, and proportionally faster for EB-NeRD", also write the commands in README.md that would allow to verify these claims in one command.
