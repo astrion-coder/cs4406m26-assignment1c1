@@ -251,3 +251,52 @@ their respective Q2/Q3 sections. The `rank_bm25` comparison itself isn't
 re-run by the script since that dependency was deliberately removed; the
 script benchmarks the shipped path only and notes how to re-add the library
 if that specific comparison point needs re-verifying.
+
+### "Finish Q4 in the spec"
+
+Implemented Q4 (Offline Evaluation Harness) end-to-end from the design
+already locked into `SPEC.md` — no new design decisions were open, so this
+went straight to implementation rather than a plan/AskUserQuestion round.
+Built `src/cs4406m26_assignment1c1/evaluation.py` (auc_impression, mrr,
+ndcg_at_k, bootstrap_ci, intra_list_diversity, novelty, coverage — pure
+functions, unit-tested against hand-computed toy values before touching real
+data) and `src/evaluation_harness.ipynb` + `evaluation_harness.py`.
+
+One real design gap had to be resolved during implementation, not just
+transcribed from the spec: `score_inview` needs a defined score for
+cold-start users (empty click history), but Q2/Q3's embedding path returns
+nothing for a user with no mean-pooled vector. Resolved it by having both
+adapters fall back to an all-zero score per inview item for a cold-start
+user — BM25 already does this naturally (an empty query touches no
+postings), so the embedding adapter was made to match. An all-zero vector
+produces a well-defined but fully-tied ranking, which works out to exactly
+AUC=0.5 by the rank-sum formula — confirmed on real data (MIND's cold-start
+slice reports auc.point == 0.500 exactly, for both methods, both splits).
+This is what makes cold-start-vs-warm a genuine *slice* for Q4's ranking
+metrics (both groups get scored) rather than an *exclusion* like it is for
+Q2/Q3's recall@K (a cold-start user literally has no query to retrieve
+with). Also had to work out the efficient shape of `score_inview`: the outer
+per-impression loop needed a uniform `(user_id, article_ids_inview) -> dict`
+signature per SPEC.md, but a naive implementation would recompute BM25's
+full-corpus `get_scores` on every impression; instead each split is
+processed sorted by `user_id` and the BM25 adapter memoizes the last user's
+score vector, so `get_scores` runs once per unique user (~72,591 total
+across both datasets) rather than once per impression (~264K) — full
+population caching was ruled out first (a full-corpus float vector per MIND
+user would be ~26GB).
+
+Ran the harness end-to-end (background, ~a few minutes given the per-user
+BM25 rescoring volume) — all 11 test cells passed, including the cold-start
+AUC=0.5 sanity check and a cross-check of head/tail popularity-skew figures
+against SPEC.md's already-verified real-data numbers. A genuinely interesting
+result for the design note: embeddings rank *better* than BM25 within each
+impression's own inview candidates on both datasets (e.g. MIND test AUC
+0.595 vs. 0.556), the opposite of Q2/Q3's recall@K where BM25 generally led
+at full-catalog retrieval — the two framings measure different things
+(finding vs. ranking) and don't have to agree.
+
+Per `CLAUDE.md`'s numeric-claims-need-a-README-command rule, also wrote
+`scripts/benchmark_bootstrap_ci.py` for Q4 #5's "well under a second" bootstrap
+timing claim (measured: 0.47s for MIND's ~73K-impression test split, 1,000
+iterations) and documented it in `README.md` alongside the new
+"Run the offline evaluation harness (Q4)" section.

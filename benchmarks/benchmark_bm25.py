@@ -2,7 +2,7 @@
 MIND's 65,238-article corpus, well under a minute extrapolated across all
 val/test users) against the real feature store and bm25.py module.
 
-Usage: uv run python scripts/benchmark_bm25.py
+Usage: uv run python benchmarks/benchmark_bm25.py
 """
 
 from __future__ import annotations

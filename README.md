@@ -299,6 +299,34 @@ uv run python scripts/benchmark_embeddings.py
 Times the matmul and top-K-selection stages of `batched_top_k` separately,
 over the real, full val/test population of each dataset (no sampling).
 
+## Run the offline evaluation harness (Q4)
+
+```bash
+uv run python evaluation_harness.py
+```
+
+Requires the Q1 feature store, Q2's `bm25_topk.parquet`/`bm25_metrics.json`,
+and Q3's `article_embeddings.parquet`/`embedding_topk.parquet` to already
+exist. Executes [`src/evaluation_harness.ipynb`](src/evaluation_harness.ipynb)
+end-to-end: re-ranks each impression's own `article_ids_inview` with a
+`score_inview` adapter per method (in
+[`src/cs4406m26_assignment1c1/evaluation.py`](src/cs4406m26_assignment1c1/evaluation.py)
+— see `SPEC.md` Q4 #1 for why this is a different framing from Q2/Q3's
+full-catalog recall@K), computes AUC/MRR/nDCG@{5,10}, intra-list diversity,
+novelty, and coverage, slices by cold-start-vs-warm and head-vs-tail, and
+bootstraps a 95% CI per `(dataset, method, split, slice, metric)`. Writes
+`eval_metrics.json` to `data/processed/{ebnerd,mind}/`.
+
+Verify the bootstrap-CI timing claim in `SPEC.md` Q4 #5 (computationally
+trivial even at MIND's ~70K-impression test-split scale):
+
+```bash
+uv run python scripts/benchmark_bootstrap_ci.py
+```
+
+Times `bootstrap_ci` (1,000 iterations) at each split's real impression
+count.
+
 ## Dataset location
 
 dataset should be present in the local repo of the person running the code in the format as present in my local repo.

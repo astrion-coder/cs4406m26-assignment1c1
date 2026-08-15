@@ -4,7 +4,7 @@ full MIND val/test population) against the real feature store and
 embeddings.py module. Mirrors batched_top_k's two internal stages with
 separate timers so each half of the claim can be checked independently.
 
-Usage: uv run python scripts/benchmark_embeddings.py
+Usage: uv run python benchmarks/benchmark_embeddings.py
 """
 
 from __future__ import annotations

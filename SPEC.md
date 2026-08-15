@@ -1,7 +1,7 @@
 # Assignment 1 Spec
 
-Covers Q1–Q9 of `assignments/Assignment1_v1.pdf`. Q1 and Q2 are implemented;
-Q3–Q9 are design only, pending implementation.
+Covers Q1–Q9 of `assignments/Assignment1_v1.pdf`. Q1–Q4 are implemented;
+Q5–Q9 are design only, pending implementation.
 
 # Q1 — Reproducible Data Pipeline
 
