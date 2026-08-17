@@ -300,3 +300,250 @@ Per `CLAUDE.md`'s numeric-claims-need-a-README-command rule, also wrote
 timing claim (measured: 0.47s for MIND's ~73K-impression test split, 1,000
 iterations) and documented it in `README.md` alongside the new
 "Run the offline evaluation harness (Q4)" section.
+
+### "for Q5, i want to submit to the codabench leaderboards, give me the process to do that"
+
+`SPEC.md`'s Q5 section had previously stated the submission file format
+couldn't be verified since both Codabench competition pages are JS-rendered
+and login-gated. Re-attempted verification using the assignment PDF's own
+cited links (the EB-NeRD starter repo, `github.com/jppol-ai/ebnerd-benchmark`,
+and the two Codabench competition URLs) rather than giving up at the first
+failed fetch. The Codabench pages themselves were confirmed still
+unreachable (only navigation chrome, as before), but following the starter
+repo's README to `examples/quick_start/nrms_ebnerd.py` led to
+`ebrec.utils._python.write_submission_file`/`rank_predictions_by_score` —
+real, verifiable source code, not a guess. Cross-checked against the MIND
+side independently via the reference `recommenders-team/recommenders`
+NRMS-on-MIND example notebook, since the assignment's MIND competition has
+no equivalent starter repo of its own; both implement the identical format
+(`{impression_id} [{rank1,...,rankN}]`, one line per impression, N =
+`len(article_ids_inview)`, ranks computed via `argsort(argsort(-scores))+1`
+over the *original* inview order, zipped as a single file). Also checked our
+own pipeline's actual `impression_id` values (e.g. `mind_dev_1`,
+`ebnerd_144772`) to confirm the native (non-namespaced) ID needed for
+submission is recoverable by stripping the dataset prefix. Rewrote `SPEC.md`
+Q5 with this now-verified format and a narrowed, honest "still unverified"
+note (only the exact hidden-test-set population remains unconfirmed, not
+the file format itself). Did not implement `generate_predictions()` yet —
+the user asked for the process, not the code; offered to build it next.
+
+### User pasted MIND's actual Submission Guidelines page content (logged into Codabench)
+
+Confirms the rank-encoding format independently derived from source code in
+the previous prompt is exactly right, and adds facts that couldn't have been
+guessed from source code alone: the zip must contain `prediction.txt` at its
+**root** with no subfolder/`__MACOSX` entries; **row order in the file must
+match the original impressions file's order** (not re-sorted); max one
+submission per day; a separate validation-set submission is allowed during
+development to avoid burning the daily test-set quota. Updated `SPEC.md`
+Q5 #2 with these now first-party-confirmed MIND details, and narrowed #3's
+"still unverified" note to the one thing that still isn't confirmed: MIND's
+grading test set is very likely the original (never-released) MIND
+challenge test set, not MINDsmall's provider `dev/` that this project has
+been treating as its own `test` split — since this is the long-running
+CodaLab-era MIND competition, not a from-scratch dataset. Flagged that
+`generate_predictions` may need a competition-provided impressions file as
+an extra input rather than reusing the existing feature store, pending a
+check of the competition's own Data/Files tab. Also updated #4's
+implementation note: the evaluation-harness pattern of sorting impressions
+by `user_id` for BM25-cache efficiency (Q4) must NOT carry into the
+submission file — row order there has to match the source file exactly.
+
+### "there is no extra test data there. Do one thing, use the current local training data as train set, dev as test set and create the generate_predictions based on that"
+
+Resolved Q5 #3's remaining open question: checked the MIND competition's
+own Data tab directly — no separate hidden test file exists — so
+`generate_predictions` reads straight from the existing feature store,
+predicting over MIND's own `test` split (== MINDsmall's provider `dev/`),
+exactly as Q1–Q4 already treat it. Implemented `generate_predictions(method,
+split="test")` in `src/generate_predictions.ipynb` + `generate_predictions.py`
+(MIND only — EB-NeRD's Submission Guidelines page is still unconfirmed),
+reusing the same `score_inview` adapters as Q4. First run failed on the
+round-trip test cell (`ValueError: invalid literal for int() with base 10:
+'6]\r'`) — root-caused rather than patched around: `Path.write_text()` on
+Windows silently translates `\n` to `\r\n`, leaving a stray `\r` glued onto
+the last rank of every line once zipped and re-parsed, which `.strip("[]")`
+doesn't clean up since `\r` sits outside the stripped character set. Fixed
+by writing the file as raw UTF-8 bytes instead, matching what the reference
+implementations (which run on Linux/Mac, so never hit this) actually
+produce. Re-ran end-to-end: all 3 test cells pass, and a direct inspection of
+the resulting zip confirms 73,152 lines (MIND's real test-split impression
+count), no `\r` contamination, and every line's ranks are a valid 1..n
+permutation. Generated submissions for both methods
+(`submissions/mind/mind_{embedding,bm25}_test_prediction.zip`); embeddings
+is the one to actually upload, per Q4's finding that it outperforms BM25 on
+MIND's ranking metrics.
+
+### User pasted a Codabench evaluate.py traceback after submitting the MIND BM25 zip
+
+`IndexError: boolean index did not match indexed array along dimension 0;
+dimension is 22 but corresponding boolean dimension is 16` inside their
+`evaluate.py`'s `my_auc`. Root-caused rather than guessed at: fetched the
+official MIND evaluation script (`github.com/msnews/MIND/blob/master/evaluate.py`,
+found via web search once a direct URL wasn't in hand) and read its actual
+matching logic -- truth and submission files are read line-by-line in
+lockstep, with an impression-ID equality check per line. Since the error was
+a *shape* mismatch, not the script's own "Inconsistent Impression Id" error,
+the ID at that line matched but the candidate-set size didn't, meaning
+Codabench's real ground truth has different data for that impression than
+what we submitted. Verified our own local pipeline is innocent first, not
+last: MIND's `test`-split native impression IDs are exactly 1..73,152 with
+no gaps/duplicates, `behaviors.tsv`'s raw line count matches our parsed row
+count exactly, and the file has zero `"` characters (ruling out a
+pandas CSV-quoting misparse). Searched for the deployed dataset's official
+download source and found (via web search) that Microsoft's own blob
+storage for MINDsmall now returns 409/no public access -- a known, currently
+open issue (`recommenders-team/recommenders#2133`) -- which is presumably
+why the assignment pointed to a third-party Hugging Face mirror instead;
+concluded the most likely explanation is a content difference between that
+mirror and whatever Codabench's ground truth was actually built from, but
+couldn't fully confirm without the truth file. Ended the turn by asking the
+user to check Codabench's own scoring error log for more detail, rather than
+guessing further blind.
+
+### "i have provided 2 new scripts for download the correct datasets... modify them such that they run on my machine with my proper format, dont run them, also make sure that i can see the download progress in the terminal when i run them manually"
+
+The user's two new root-level scripts (`download_ebnerd.py`,
+`download_mind_large_test.py`) resolved the previous prompt's mystery:
+`download_mind_large_test.py` fetches `MINDlarge_test.zip` -- MIND's real,
+separate, unlabeled Codabench test set -- confirming the suspicion that
+MINDsmall_dev was never the right population to submit against. Went into
+plan mode to scope the fix (both scripts reference a foreign project's
+conventions that don't exist here -- a `news_reco` package, `configs/*.yaml`,
+a `scripts/` directory -- plus a real path bug in the MIND script,
+`parent.parent` walking one directory above the actual repo root). Asked two
+scoped questions via AskUserQuestion: **the user chose to add both
+`requests` and `huggingface_hub` as new dependencies** (rather than a
+stdlib-only rewrite), and confirmed **not yet authenticated with Hugging
+Face**, so the plan called for an upfront fail-fast auth check. The user
+rejected the plan at the approval step (did not explain why) and redirected
+to a different, narrower task instead -- the two-script fix itself was not
+implemented this turn.
+
+### "now generate Q5 for EB-NeRD"
+
+Generalized `src/generate_predictions.ipynb`/`generate_predictions.py` from
+MIND-only to both datasets in one pass, following this project's established
+"shared code, separate runs per dataset" pattern (same as Q1-Q4) rather than
+a one-off EB-NeRD-specific notebook. The two competitions' confirmed/inferred
+submission filenames genuinely differ (MIND: singular `prediction.txt`,
+confirmed directly; EB-NeRD: plural `predictions.txt`, inferred from
+`ebrec.utils._python.write_submission_file`'s own default, not yet confirmed
+against EB-NeRD's own guidelines page) -- handled via a small per-dataset
+filename lookup rather than assuming one format for both. Also corrected a
+now-known-wrong claim left in `SPEC.md` from an earlier turn ("MIND --
+resolved... no separate hidden test file exists") given the real submission
+failure investigated two prompts ago -- rewrote it to state plainly that
+this was wrong, why, and that it's not yet fixed. Explicitly flagged the same
+unverified-population risk for EB-NeRD's new submission zip, rather than
+silently repeating the mistake that just broke MIND's real submission.
+Ran end-to-end: all 3 test cells passed for both datasets; directly
+inspected the EB-NeRD zip too (not just trusted the test cell) --
+25,356 lines matching EB-NeRD's real test-split impression count, correct
+`predictions.txt` filename inside the zip, no CRLF contamination, valid
+rank permutations. Cleaned up stale zip files left over from the prior
+MIND-only run's different naming scheme.
+
+### User pasted a Codabench score.py traceback after submitting the EB-NeRD embedding zip
+
+`ValueError: line-1: Inconsistent Impression ID 144772 and 6451339` --
+confirmed, rather than just suspected, that EB-NeRD has the exact same
+problem just found for MIND: `generate_predictions` was predicting over the
+wrong population. This time it's an outright ID mismatch (not a shape
+mismatch like MIND's), meaning Codabench's very first ground-truth
+impression isn't even present in `ebnerd_demo`. Root-caused directly rather
+than assuming symmetry with MIND: searched for an official EB-NeRD test
+bundle, then verified via `curl -I` against the same public S3 bucket
+`download_ebnerd.py` already uses that `ebnerd_testset.zip` exists (200 OK,
+~1.6GB) -- a dedicated, much larger, Codabench-specific test set, exactly
+mirroring `MINDlarge_test` vs. MINDsmall_dev. Updated `SPEC.md` Q5 #3 with
+this confirmed (not just suspected) finding. Not yet fixed: `download_ebnerd.py`
+only supports the `demo`/`small` bundles so far and needs a `testset` option
+added, then Q1's pipeline and this section's `generate_predictions` re-pointed
+at it once downloaded.
+
+### "i just downloaded ebnerd_small, do Q1 to Q5 on ebnerd small and generate me the submission zip"
+
+First attempt at this repointed `build_pipeline.ipynb`'s single `EBNERD`
+constant from `ebnerd_demo` to `ebnerd_small` in place, which would have
+silently destroyed the already-committed demo-based Q1-Q4 results the moment
+the pipeline was rerun.
+
+### "ok no hangon, you are modifying ebnerd to change it from demo to small. I dont want that, keep both the demo and small ones" (stated twice, first message got cut off)
+
+Critical correction — caught an in-place overwrite of an established dataset
+before it landed. Two real design decisions were resolved via
+`AskUserQuestion` rather than guessed: (1) naming — keep `ebnerd` pointed at
+demo, unchanged, and add a wholly new `ebnerd_small` track alongside it
+(chosen over renaming both to something else); (2) sequencing — restore the
+demo-based pipeline first, verify it, then build `ebnerd_small` (chosen over
+building small first). `build_pipeline.ipynb` was restructured so every
+EB-NeRD builder function (`build_ebnerd_articles`/`build_ebnerd_behaviors`/
+`build_ebnerd_history`) takes a `prefix` argument and is called twice — once
+per EB-NeRD track — rather than duplicating the notebook. Re-verified Q1 and
+Q2 end-to-end for all three tracks afterward (`ebnerd` correctly restored to
+demo scale: 11,777 articles/50,080 behaviors/1,935 users; `ebnerd_small`
+built fresh: 20,738/477,534/18,827; `mind` unaffected). Standing lesson: never
+silently repoint a shared, already-established dataset path in place to add
+a new variant — treat it as additive, in its own namespace, unless
+explicitly told to replace.
+
+### "when i ran on kaggle, why did ebnerd small take less time than ebnerd demo? isnt' the small one larger?"
+
+A genuine "why does the data not match intuition" question, not a task —
+answered directly rather than guessed: `ebnerd_small`'s article catalog
+(20,738 rows) is larger than demo's (11,777), so if raw `model.encode()`
+throughput were the only factor, small should have taken longer. The more
+likely explanation is that per-run *fixed* costs — `pip install
+sentence-transformers`, downloading the ~1GB `paraphrase-xlm-r-multilingual-v1`
+model weights from Hugging Face, CUDA/cuDNN initialization — dominate total
+Kaggle notebook wall time far more than the actual encode step does at these
+corpus sizes, so whichever run happened to hit a faster network pull or a
+better-available GPU (T4 vs. P100, or a less-contended shared T4) can easily
+finish faster despite having more rows to encode. Secondary candidate: total
+tokens (not row count) drives `encode()` cost, so if `ebnerd_small`'s
+titles/abstracts are shorter on average, it can process more rows in less
+wall time.
+
+### "the @ebnerd_small_articles.parquet file, is it just a renamed version of the articles.parquet in ebnerd_small/ directory?" / "no sorry sorry, i upload the file in data/processed/ebnerd_small/articles.parquet and renamed it. Is it different from the file in the repo root?"
+
+Data-provenance question, verified by directly reading and diffing the
+parquet files rather than reasoning from memory. First answer: no — the raw
+`ebnerd_small/articles.parquet` (21 native EB-NeRD columns, int `article_id`)
+is structurally different from the root `ebnerd_small_articles.parquet` (8
+unified-schema columns, prefixed string `article_id`) that was actually
+uploaded to Kaggle; confirmed by reading both files' schemas directly. Once
+the user clarified they'd actually renamed a copy of
+`data/processed/ebnerd_small/articles.parquet` (the *processed* file, not
+the raw one), re-verified with `DataFrame.equals()` that it's byte-for-byte
+identical to the prepared root copy — confirming the correct file was
+uploaded.
+
+### "ok then, article_embeddings.parquet is the vector file trained from kaggle. That part is done, you can now continute"
+
+Unblocked Q3-Q5 for `ebnerd_small` once the Kaggle-computed
+`article_embeddings.parquet` was placed at
+`data/processed/ebnerd_small/article_embeddings.parquet`. Extended the
+`DATASETS` list in `embedding_retrieval.ipynb` (Q3), `evaluation_harness.ipynb`
+(Q4), and `generate_predictions.ipynb` (Q5) from `["ebnerd", "mind"]` to
+`["ebnerd", "ebnerd_small", "mind"]` — mechanical for Q3 (fully generic
+notebook, zero other code changes), but Q4 needed a real fix: its bootstrap-CI
+test hardcoded `expected_none` assuming only one dataset (`ebnerd`) has zero
+cold-start users, which would have silently doubled once `ebnerd_small`
+(also zero cold-start users) joined and failed the assertion. Fixed by
+computing the expected count of degenerate slices dynamically from
+`coldstart_users` instead of a hardcoded constant. Also caught and corrected
+a stale numeric claim while touching adjacent text in `SPEC.md`: MIND's
+cold-start user count was cited as "2,122" in four places, but the real,
+already-verified figure (cross-checked against `bm25_metrics.json` in the
+harness's own test cell) is 1,770 distinct users — fixed all four occurrences
+rather than propagating the error into new `ebnerd_small` figures alongside
+it. Reran Q3/Q4/Q5 end-to-end for all three datasets and verified real
+output (not just trusted test-cell "ok" prints): `ebnerd_small` embedding
+recall trails BM25 the same way both other tracks do (Q3), embeddings beat
+BM25 on ranking AUC the same way both other tracks do (Q4: 0.550 vs 0.501),
+and `generate_predictions` produced a correctly-formatted (but
+not-for-Codabench-submission, since `ebnerd_small` isn't a real competition
+track) `predictions.txt` zip (Q5). Updated `SPEC.md` and `README.md`
+throughout to describe three dataset tracks instead of two.
+added before this can actually be resolved, same open follow-up as MIND's.

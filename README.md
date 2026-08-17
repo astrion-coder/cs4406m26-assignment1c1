@@ -1,9 +1,12 @@
 # CS4.406 Assignment 1 — EB-NeRD & MIND News Recommendation
 
-This repo builds a lexical + semantic retrieval pipeline over two news-recommendation
-datasets: **EB-NeRD (demo)** and **MIND-small**. This document describes exactly how the
-raw data is laid out on disk, file by file, column by column, as downloaded from the
-sources in `assignments/Assignment1_v1.pdf`.
+This repo builds a lexical + semantic retrieval pipeline over three news-recommendation
+dataset tracks: **EB-NeRD (demo)**, **EB-NeRD (small)**, and **MIND-small**. This
+document describes exactly how the raw data is laid out on disk, file by file, column
+by column, as downloaded from the sources in `assignments/Assignment1_v1.pdf`.
+EB-NeRD small shares EB-NeRD demo's exact file layout and column schema — only the
+row counts differ (a larger article catalog and user base) — so it isn't documented
+as a separate column-by-column section below.
 
 ## Directory layout
 
@@ -16,6 +19,9 @@ ebnerd_demo/
 └── validation/
     ├── behaviors.parquet
     └── history.parquet
+
+ebnerd_small/
+└── (same layout as ebnerd_demo/ -- larger row counts, see table below)
 
 MINDsmall_train/MINDsmall_train/
 ├── news.tsv                         # all articles referenced in this split
@@ -36,6 +42,9 @@ Row counts (verified against the downloaded files):
 | EB-NeRD demo | `train/history.parquet` | 1,590 (one row per user) |
 | EB-NeRD demo | `validation/behaviors.parquet` | 25,356 impressions (1,562 users) |
 | EB-NeRD demo | `validation/history.parquet` | 1,562 |
+| EB-NeRD small | `articles.parquet` | 20,738 |
+| EB-NeRD small | `train/behaviors.parquet` + `validation/behaviors.parquet` | 477,534 impressions (18,827 users) |
+| EB-NeRD small | `train/history.parquet` + `validation/history.parquet` | 18,827 (one row per user, deduplicated) |
 | MIND-small train | `news.tsv` | 51,282 |
 | MIND-small train | `behaviors.tsv` | 156,965 (50,000 users) |
 | MIND-small train | `entity_embedding.vec` | 26,904 |
@@ -44,8 +53,8 @@ Row counts (verified against the downloaded files):
 | MIND-small dev | `behaviors.tsv` | 73,152 (50,000 users) |
 | MIND-small dev | `entity_embedding.vec` | 22,893 |
 
-Note: the extracted `ebnerd_demo/__MACOSX/` folder is macOS zip metadata (`._*`
-AppleDouble files), not data — safe to delete/ignore.
+Note: the extracted `ebnerd_demo/__MACOSX/` and `ebnerd_small/__MACOSX/` folders are
+macOS zip metadata (`._*` AppleDouble files), not data — safe to delete/ignore.
 
 ---
 
@@ -213,11 +222,11 @@ uv run python build_pipeline.py
 ```
 
 Executes [`src/build_pipeline.ipynb`](src/build_pipeline.ipynb) end-to-end: cleans and
-parses both raw datasets into the unified `articles`/`behaviors`/`history` schema
-described in `SPEC.md`, assigns a time-based `train`/`val`/`test` split, runs the
+parses all three raw dataset tracks into the unified `articles`/`behaviors`/`history`
+schema described in `SPEC.md`, assigns a time-based `train`/`val`/`test` split, runs the
 Q9 no-future-click-leakage checks, and writes the result to
-`data/processed/{ebnerd,mind}/` (gitignored). Every step's assertions must pass or
-the rebuild aborts — see `SPEC.md` for the full design.
+`data/processed/{ebnerd,ebnerd_small,mind}/` (gitignored). Every step's assertions
+must pass or the rebuild aborts — see `SPEC.md` for the full design.
 
 ## Run BM25 lexical retrieval (Q2)
 
@@ -232,7 +241,7 @@ from-scratch BM25 index per dataset (postings-list inverted index, in
 no third-party BM25 library, see `SPEC.md` for why), retrieves top-K
 candidates per user from their pre-window click history, and writes
 `bm25_topk.parquet` + `bm25_metrics.json` (recall@{50,100,200} on val/test) to
-`data/processed/{ebnerd,mind}/`.
+`data/processed/{ebnerd,ebnerd_small,mind}/`.
 
 Verify the from-scratch-vs-`rank_bm25` performance claim in `SPEC.md` Q2 #1
 (the reason `bm25.py` is hand-built rather than a library call):
@@ -253,22 +262,24 @@ faster; re-run that specific comparison only after `uv add rank-bm25`.
 Article embeddings are computed on a GPU on Kaggle, not locally — see
 `SPEC.md` Q3 #1 for why. Steps:
 
-1. Rename local copies of `data/processed/ebnerd/articles.parquet` and
-   `data/processed/mind/articles.parquet` to `ebnerd_articles.parquet` /
-   `mind_articles.parquet`, then upload both together as one private Kaggle
-   Dataset (Kaggle → New Notebook → **+ Add Data → Upload → New Dataset**).
+1. Rename local copies of `data/processed/{dataset}/articles.parquet` to
+   `{dataset}_articles.parquet` for whichever of `ebnerd`/`ebnerd_small`/`mind`
+   you need embeddings for (all three, or just the one that changed — the
+   notebook auto-discovers whichever subset is attached), then upload them
+   together as one private Kaggle Dataset (Kaggle → New Notebook →
+   **+ Add Data → Upload → New Dataset**).
 2. Import [`src/compute_embeddings_kaggle.ipynb`](src/compute_embeddings_kaggle.ipynb)
    into a Kaggle Notebook (File → Import Notebook).
 3. In the notebook's Settings (right sidebar): **Accelerator → GPU T4 x2**
    (or P100), **Internet → On**.
 4. **Save Version → Save & Run All (Commit)**. Once finished, open that
-   version's **Output** tab and download `ebnerd_article_embeddings.parquet`
-   and `mind_article_embeddings.parquet`.
-5. Move them into the local repo as `data/processed/ebnerd/article_embeddings.parquet`
-   and `data/processed/mind/article_embeddings.parquet`.
+   version's **Output** tab and download `{dataset}_article_embeddings.parquet`
+   for each dataset you attached.
+5. Move each into the local repo as
+   `data/processed/{dataset}/article_embeddings.parquet`.
 
 The local repo never installs `torch`/`sentence-transformers` — once these
-two files exist, everything downstream runs locally with the existing
+files exist, everything downstream runs locally with the existing
 numpy/pandas/pyarrow dependencies only.
 
 ## Run semantic (embedding) retrieval (Q3)
@@ -287,7 +298,7 @@ top-K candidates via batched brute-force cosine similarity (in
 no FAISS/ANN library, see `SPEC.md` for why brute-force is fast enough at
 this scale), and writes `embedding_topk.parquet` + `embedding_metrics.json`
 (recall@{50,100,200} on val/test, plus a lexical-vs-semantic comparison
-against Q2's BM25 results) to `data/processed/{ebnerd,mind}/`.
+against Q2's BM25 results) to `data/processed/{ebnerd,ebnerd_small,mind}/`.
 
 Verify the brute-force-vs-FAISS performance claim in `SPEC.md` Q3 #2 (why no
 ANN library is used):
@@ -315,7 +326,7 @@ end-to-end: re-ranks each impression's own `article_ids_inview` with a
 full-catalog recall@K), computes AUC/MRR/nDCG@{5,10}, intra-list diversity,
 novelty, and coverage, slices by cold-start-vs-warm and head-vs-tail, and
 bootstraps a 95% CI per `(dataset, method, split, slice, metric)`. Writes
-`eval_metrics.json` to `data/processed/{ebnerd,mind}/`.
+`eval_metrics.json` to `data/processed/{ebnerd,ebnerd_small,mind}/`.
 
 Verify the bootstrap-CI timing claim in `SPEC.md` Q4 #5 (computationally
 trivial even at MIND's ~70K-impression test-split scale):
@@ -326,6 +337,46 @@ uv run python scripts/benchmark_bootstrap_ci.py
 
 Times `bootstrap_ci` (1,000 iterations) at each split's real impression
 count.
+
+## Generate a Codabench submission (Q5)
+
+```bash
+uv run python generate_predictions.py
+```
+
+Requires the Q1 feature store and Q3's `article_embeddings.parquet` for
+**all three** dataset tracks. Executes
+[`src/generate_predictions.ipynb`](src/generate_predictions.ipynb)
+end-to-end: re-ranks each dataset's `test` split with the same
+`score_inview` adapters as Q4, and writes
+`submissions/{ebnerd,ebnerd_small,mind}/{dataset}_{embedding,bm25}_test_predictions.zip`,
+each containing a single `prediction.txt` (MIND) or `predictions.txt`
+(EB-NeRD/EB-NeRD small) — one line per impression, `{impression_id}
+[{rank_1},...,{rank_n}]`, row order matching the original file.
+
+> **Known-bad assumption, not yet fixed**: a real MIND submission (the BM25
+> zip) already failed on Codabench with a candidate-set mismatch — MIND's
+> competition almost certainly scores against `MINDlarge_test`, a separate
+> held-out file, not MINDsmall's provider `dev/` (which `test` here
+> currently is). See `SPEC.md` Q5 #3. EB-NeRD's zip carries the same
+> unverified-population risk and hasn't been tested against Codabench at
+> all yet. **Treat both zips as unverified until each competition's actual
+> expected test population is confirmed** — don't submit blind.
+>
+> **`ebnerd_small`'s zip is not a Codabench submission at all** — generated
+> for local completeness only. The real EB-NeRD competition scores
+> `ebnerd_testset.zip`, a separate hidden bundle, not `ebnerd_small` (see
+> `SPEC.md` Q5 #3/#4). Do not upload it to Codabench.
+
+To submit once confirmed: register at
+[codabench.org/competitions/13967](https://www.codabench.org/competitions/13967/)
+(MIND) or
+[codabench.org/competitions/2469](https://www.codabench.org/competitions/2469/)
+(EB-NeRD/RecSys 2024), go to **Participate → Submit / View Results**, and
+upload the `embedding` zip for that dataset (embeddings scored better than
+BM25 in Q4's comparison on every dataset track). MIND is limited to one
+submission per day. Screenshot the resulting leaderboard score for the Q6
+design note.
 
 ## Dataset location
 

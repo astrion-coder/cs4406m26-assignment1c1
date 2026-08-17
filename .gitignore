@@ -11,9 +11,14 @@ wheels/
 
 # Datasets
 ebnerd_demo/
+ebnerd_small/
 MINDsmall_dev/
 MINDsmall_train/
 data/
+
+# Codabench submissions (Q5) -- generated, and *.zip is excluded by Q8's git policy
+submissions/
+*.zip
 
 # Personal Updates
 updates.md

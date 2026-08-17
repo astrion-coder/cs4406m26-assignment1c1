@@ -1,20 +1,25 @@
 # Assignment 1 Spec
 
-Covers Q1–Q9 of `assignments/Assignment1_v1.pdf`. Q1–Q4 are implemented;
-Q5–Q9 are design only, pending implementation.
+Covers Q1–Q9 of `assignments/Assignment1_v1.pdf`. Q1–Q5 are implemented;
+Q6–Q9 are design only, pending implementation.
 
 # Q1 — Reproducible Data Pipeline
 
 ## 1. Goal
 
-One pipeline, run twice (once per dataset), that turns the raw EB-NeRD demo and
-MIND-small files into three unified-schema tables per dataset — `articles`,
-`behaviors`, `history` — with a `split` column (`train`/`val`/`test`) assigned by
-time, rebuildable from raw files with a single command.
+One pipeline, run once per dataset track, that turns the raw EB-NeRD demo,
+EB-NeRD small, and MIND-small files into three unified-schema tables per
+dataset — `articles`, `behaviors`, `history` — with a `split` column
+(`train`/`val`/`test`) assigned by time, rebuildable from raw files with a
+single command.
 
-The two datasets are **never merged**: outputs stay in separate per-dataset
+The dataset tracks are **never merged**: outputs stay in separate per-dataset
 directories with dataset-namespaced IDs. Only the schema (column names/types) and the
-code that produces it are shared.
+code that produces it are shared. EB-NeRD small is an additive, independent
+track alongside EB-NeRD demo (not a replacement) — its own namespace prefix
+(`ebnerd_small_<native_id>`) and its own `data/processed/ebnerd_small/`
+directory, built by the same `build_ebnerd_*` functions called with a
+different `prefix` argument.
 
 ## 2. Unified schema
 
@@ -76,21 +81,24 @@ fail loudly if it doesn't hold, rather than silently picking one.
 
 ## 3. Temporal split
 
-Both datasets already ship two chronologically contiguous provider splits (train,
-then dev/validation) — there is no provider test split. Verified date ranges (from
-the actual files on disk):
+All three dataset tracks already ship two chronologically contiguous provider
+splits (train, then dev/validation) — there is no provider test split.
+Verified date ranges (from the actual files on disk):
 
 | | provider `train` | provider `dev`/`validation` |
 |---|---|---|
 | EB-NeRD demo | 2023-05-18 07:00 → 2023-05-25 07:00 (7 days) | 2023-05-25 07:00 → 2023-06-01 07:00 (7 days) |
+| EB-NeRD small | 2023-05-18 07:00 → 2023-05-25 07:00 (7 days, identical range to demo) | 2023-05-25 07:00 → 2023-06-01 07:00 (7 days, identical range to demo) |
 | MIND-small | 2019-11-09 00:00 → 2019-11-15 00:00 (6 days) | 2019-11-15 00:00 → 2019-11-16 00:00 (1 day) |
 
 Design decision: treat the provider's dev/validation split as our held-out **test**
 set (untouched until final evaluation), and carve **our** validation set from the
 last day of the provider's train split by time — never randomly. Concretely:
 
-- EB-NeRD: `train` = impressions before `2023-05-24 07:00:00`; `val` = impressions in
-  `[2023-05-24 07:00:00, 2023-05-25 07:00:00)`; `test` = all of provider `validation/`.
+- EB-NeRD (demo and small — identical provider date range, so identical
+  cutoffs): `train` = impressions before `2023-05-24 07:00:00`; `val` =
+  impressions in `[2023-05-24 07:00:00, 2023-05-25 07:00:00)`; `test` = all
+  of provider `validation/`.
 - MIND: `train` = impressions before `2019-11-14 00:00:00`; `val` = impressions in
   `[2019-11-14 00:00:00, 2019-11-15 00:00:00)`; `test` = all of provider `dev/`.
 
@@ -105,6 +113,10 @@ data/processed/ebnerd/articles.parquet
 data/processed/ebnerd/behaviors.parquet     # includes `split` column
 data/processed/ebnerd/history.parquet
 data/processed/ebnerd/manifest.json         # row counts, split date cutoffs, schema version, build timestamp
+data/processed/ebnerd_small/articles.parquet
+data/processed/ebnerd_small/behaviors.parquet
+data/processed/ebnerd_small/history.parquet
+data/processed/ebnerd_small/manifest.json
 data/processed/mind/articles.parquet
 data/processed/mind/behaviors.parquet
 data/processed/mind/history.parquet
@@ -112,9 +124,9 @@ data/processed/mind/manifest.json
 ```
 
 `data/` is added to `.gitignore` (matches Q8's "no large files / `data/`" policy).
-Raw inputs stay wherever they already are on disk (`ebnerd_demo/`, `MINDsmall_train/`,
-`MINDsmall_dev/`), also already gitignored — the pipeline reads from there and never
-copies raw files into `data/`.
+Raw inputs stay wherever they already are on disk (`ebnerd_demo/`, `ebnerd_small/`,
+`MINDsmall_train/`, `MINDsmall_dev/`), also already gitignored — the pipeline reads
+from there and never copies raw files into `data/`.
 
 ## 5. Implementation shape
 
@@ -238,8 +250,8 @@ is 71 (EB-NeRD) / 12 (MIND) — a fixed modest window keeps queries focused on
 recent interest and comparable across datasets rather than dominated by
 EB-NeRD's longer histories.
 
-Cold-start users (empty `article_id_sequence` — 0 in EB-NeRD demo, 2,122 in
-MIND) produce no query and are excluded from the recall@K aggregate, with
+Cold-start users (empty `article_id_sequence` — 0 in EB-NeRD demo, 0 in
+EB-NeRD small, 1,770 in MIND) produce no query and are excluded from the recall@K aggregate, with
 their impression count reported separately per split; cold-start-vs-warm
 slicing itself is Q4's job.
 
@@ -352,18 +364,24 @@ environment. The split:
 
 - `src/compute_embeddings_kaggle.ipynb` — a standalone notebook, **not** part
   of the local one-command pipeline and **not** executed by any local
-  `*.py` wrapper. Run on Kaggle (GPU accelerator, internet enabled): both
-  datasets' `articles.parquet` are attached as a Kaggle Dataset input, the
-  notebook encodes `title + " " + abstract` with the model above, and writes
-  the resulting `article_embeddings.parquet` per dataset to
+  `*.py` wrapper. Run on Kaggle (GPU accelerator, internet enabled): each
+  dataset's `articles.parquet` (renamed to `{dataset}_articles.parquet`) is
+  attached as a Kaggle Dataset input — any subset of `ebnerd`/`ebnerd_small`/
+  `mind` present is auto-discovered by filename pattern (`ebnerd_small`
+  matched and excluded from the plainer `ebnerd` pattern first, so
+  `ebnerd_small_articles.parquet` is never ambiguously double-counted as an
+  `ebnerd` match), which lets a re-run upload only the dataset that actually
+  changed rather than all three every time. The notebook encodes
+  `title + " " + abstract` with the model above, and writes the resulting
+  `{dataset}_article_embeddings.parquet` per attached dataset to
   `/kaggle/working/`, downloaded from that run's Output tab. A GPU makes
-  runtime a non-issue at these corpus sizes (11,777 / 65,238 articles), so no
-  local speed benchmark is needed for this step — unlike Q2's `rank_bm25`
-  story, the constraint here is dependency weight and environment (Kaggle has
-  a GPU and disposable install; the local dev environment doesn't), not raw
-  throughput.
-- The two downloaded files are placed at
-  `data/processed/{ebnerd,mind}/article_embeddings.parquet` by hand (same
+  runtime a non-issue at these corpus sizes (11,777 / 20,738 / 65,238
+  articles), so no local speed benchmark is needed for this step — unlike
+  Q2's `rank_bm25` story, the constraint here is dependency weight and
+  environment (Kaggle has a GPU and disposable install; the local dev
+  environment doesn't), not raw throughput.
+- The downloaded files are placed at
+  `data/processed/{dataset}/article_embeddings.parquet` by hand (same
   manual-prerequisite pattern as Q1's raw dataset downloads — Part 0 of the
   assignment already requires a manual download step before the one-command
   rebuild can run).
@@ -375,7 +393,7 @@ environment. The split:
 ## 2. ANN index
 
 Brute-force, not FAISS. At `dim ∈ {300–768}` and corpus sizes 11,777
-(EB-NeRD) / 65,238 (MIND), a batched dense `numpy` matmul
+(EB-NeRD demo) / 20,738 (EB-NeRD small) / 65,238 (MIND), a batched dense `numpy` matmul
 (`user_vectors @ corpus_matrix.T`) plus `np.argpartition` top-K, measured
 directly: ~7–12s for the full MIND val/test population (65,173 users) at the
 matmul step, ~19–40s for top-K selection — under two minutes total, and
@@ -393,8 +411,8 @@ query construction (`sequence[-20:]`), kept identical rather than tuned
 separately, so the lexical-vs-semantic comparison in #5 holds the input
 click window constant and only varies the scoring method. Cold-start users
 (empty `article_id_sequence`) produce no vector and are excluded from
-recall@K, reusing Q2's already-computed `coldstart_users` sets (0 EB-NeRD /
-2,122 MIND) rather than recomputing. Retrieval is cached once per val/test
+recall@K, reusing Q2's already-computed `coldstart_users` sets (0 EB-NeRD
+demo / 0 EB-NeRD small / 1,770 MIND) rather than recomputing. Retrieval is cached once per val/test
 user, identical rationale to Q2's caching (query depends only on fixed
 pre-window history).
 
@@ -410,9 +428,9 @@ rather than redefined.
 A comparison table reading both `bm25_metrics.json` and
 `embedding_metrics.json` — `recall@{50,100,200}` × `{bm25, embedding}` ×
 `{val, test}` × `{cold-start-excluded, warm-only}`, reusing Q2's
-`coldstart_users` sets directly. EB-NeRD's 0 cold-start users makes that
-slice degenerate there (state this plainly, don't hide it); MIND's
-2,122-user cold-start population makes the slice meaningful.
+`coldstart_users` sets directly. Both EB-NeRD tracks' 0 cold-start users
+make that slice degenerate there (state this plainly, don't hide it); MIND's
+1,770-user cold-start population makes the slice meaningful.
 
 ## 6. Persistence
 
@@ -558,14 +576,15 @@ split)`.
 ## 4. Slicing
 
 Cold-start vs. warm as the required slice — zero extra engineering, reuses
-Q2's `coldstart_users` sets directly (0 EB-NeRD / 2,122 MIND). Head vs. tail
-as an optional addition — train-split click counts computed from
-`article_ids_clicked.explode()` on the `train` split (no dependency on
-EB-NeRD's `total_pageviews`, not in the unified schema). Verified skew:
-MIND's top 20% of ever-clicked articles account for 90.2% of train clicks
-(median 2 clicks/article, max 4,316); EB-NeRD is more moderate (49.2% from
-the top 20%). Head = top 20% by train-click-count among ever-clicked
-articles; tail = everything else, including never-clicked articles.
+Q2's `coldstart_users` sets directly (0 EB-NeRD demo / 0 EB-NeRD small /
+1,770 MIND). Head vs. tail as an optional addition — train-split click
+counts computed from `article_ids_clicked.explode()` on the `train` split
+(no dependency on EB-NeRD's `total_pageviews`, not in the unified schema).
+Verified skew: MIND's top 20% of ever-clicked articles account for 90.2% of
+train clicks (median 2 clicks/article, max 4,316); EB-NeRD demo is more
+moderate (49.2% from the top 20%); EB-NeRD small sits in between (69.0%).
+Head = top 20% by train-click-count among ever-clicked articles; tail =
+everything else, including never-clicked articles.
 
 ## 5. Bootstrap 95% CI
 
@@ -630,30 +649,128 @@ raw-performance requirement, just correctness.
 
 # Q5 — Codabench Submission
 
-Both competition pages (`codabench.org/competitions/13967` and `.../2469`)
-are JS-rendered and require a logged-in session to view — the exact
-submission file format (columns, delimiter, zip structure) could not be
-verified from this environment and must be confirmed manually against each
-competition's "Submission"/starter-kit materials after registering, before
-writing the final serializer.
+## 1. Competitions
 
-What's implementation-ready without that: a prediction generator built on
-Q4's existing infrastructure rather than new one-off code, since Codabench
-submissions are themselves a ranking of each impression's actual candidate
-set — the same re-ranking framing as Q4's AUC/MRR/nDCG, not Q2/Q3's
-full-catalog retrieval.
+- MIND: `codabench.org/competitions/13967`
+- RecSys 2024 Challenge (EB-NeRD): `codabench.org/competitions/2469`
 
-`generate_predictions(dataset, method, split="test") -> DataFrame`: iterates
-the test split's impressions, calls the same `score_inview_fn` adapter Q4
-defines, and outputs one row per impression with candidates ranked by score
-— shape `impression_id, ranked_article_ids` pending the real column
-names/format once confirmed. `method` selects whichever of BM25/embedding
-scored better in Q4's comparison for that dataset, or both if the design
-note wants to show a comparison.
+Both competition pages are JS-rendered and require a logged-in session to
+view directly (confirmed: fetching either URL returns only navigation
+chrome, no competition-specific content).
 
-Registration on both leaderboards is a manual, one-time action (not
-implementable) that must happen before submission; leaderboard screenshots
-go into the design note (Q6) once submitted.
+## 2. Submission file format
+
+**MIND — confirmed directly from the competition's own Submission
+Guidelines page** (`codabench.org/competitions/13967`, Participate tab):
+
+- Zip containing exactly one file, `prediction.txt`, at the zip **root**
+  (no subfolder; no `__MACOSX/` entries from Mac zip tools).
+- Each line: `ImpressionID [Rank-of-News1,Rank-of-News2,...,Rank-of-NewsN]`,
+  one line per impression, ranks are **integers starting from 1**.
+- **Row order in the file must match the original impressions file's row
+  order** — not re-sorted by `ImpressionID` or anything else.
+- Max **one submission per day**. Participants may also submit **validation-
+  set** predictions during the development phase, separate from the final
+  test-set submission, to sanity-check without spending the daily test-set
+  quota.
+- Process: Participate tab → (optional) description → "Submit / View
+  Results" → upload the zip → wait for status Finished/Failed → optionally
+  publish the score to the leaderboard.
+
+This matches, independently, what two reference implementations write:
+EB-NeRD's own starter repo
+(`ebrec.utils._python.write_submission_file`/`rank_predictions_by_score`,
+`github.com/ebanalyse/ebnerd-benchmark`) and the MIND reference NRMS example
+(`recommenders-team/recommenders`,
+`examples/00_quick_start/nrms_MIND.ipynb`): `rank_i` is the 1-indexed rank
+(1 = highest predicted score) of the *i*-th article in that impression's
+`article_ids_inview`, in its **original** order — `argsort(argsort(-scores))
++ 1`. `impression_id` is the dataset's **native** (non-namespaced) ID: for
+MIND, the trailing integer of the unified schema's
+`mind_<split>_<native_id>` (equivalently, that row's 1-indexed position
+within `MINDsmall_dev/behaviors.tsv`); for EB-NeRD, the trailing integer of
+`ebnerd_<native_id>`.
+
+**EB-NeRD's own Submission Guidelines page** (`codabench.org/competitions/2469`)
+is not yet directly confirmed — assumed identical by the source-code match
+above (RecSys Challenge conventions typically mirror MIND's scheme) — worth
+a final visual check before the real submission.
+
+## 3. Still unverified
+
+**MIND — the earlier "resolved" note here was wrong, corrected after a real
+failed submission.** A first submission (BM25, generated over MINDsmall's
+provider `dev/`, treated as this project's `test` split) failed on
+Codabench with an `IndexError` inside their `evaluate.py` — a candidate-set
+length mismatch for at least one impression between our local data and
+Codabench's ground truth. Root-caused via the official MIND evaluation
+script (`github.com/msnews/MIND/blob/master/evaluate.py`): truth and
+submission rows are matched by line position with only an impression-ID
+sanity check, so a shape error (not an ID error) at a matched line means
+Codabench's ground truth has a *different* candidate set for that
+impression than MINDsmall_dev provides. MIND's Codabench competition
+almost certainly scores against `MINDlarge_test` (the real, separate,
+unlabeled held-out set), not MINDsmall_dev — confirmed by the existence of
+`download_mind_large_test.py` at the repo root, which fetches exactly that
+file from a gated Hugging Face repo. **Not yet resolved**: that script has
+not been run yet (dependencies and auth are being set up first); Q1's
+temporal split and this section's `generate_predictions` still target
+MINDsmall_dev and need to be re-pointed at `MINDlarge_test` once it's
+downloaded — real, separate follow-up work (a different-scale, unlabeled
+article catalog), not a small fix.
+
+**EB-NeRD — confirmed to be the same problem as MIND.** A real submission
+(the embedding zip, predicting over `ebnerd_demo`'s `validation/` split)
+failed on Codabench with `ValueError: line-1: Inconsistent Impression ID
+144772 and 6451339` — this time an outright ID mismatch (not a shape
+mismatch like MIND's), meaning Codabench's ground truth's very first
+impression isn't even in `ebnerd_demo` at all. Root cause confirmed
+directly: `https://ebnerd-dataset.s3.eu-west-1.amazonaws.com/ebnerd_testset.zip`
+exists (verified via `curl -I`, `200 OK`, 1,631,004,285 bytes / ~1.6GB — the
+same public bucket `download_ebnerd.py` already downloads `ebnerd_demo.zip`/
+`ebnerd_small.zip` from), confirming a dedicated, much larger,
+Codabench-specific test bundle exists and is what must actually be
+predicted over — exactly mirroring `MINDlarge_test` vs. MINDsmall_dev.
+**Not yet fixed**: `download_ebnerd.py` (per #`download_mind_large_test.py`'s
+sibling script) only supports `"demo"`/`"small"` bundles so far; needs a
+`"testset"` option added, then Q1's pipeline and this section's
+`generate_predictions` re-pointed at it once downloaded — same shape of
+follow-up work as MIND's, not yet started.
+
+EB-NeRD's Submission Guidelines page itself (filename: singular
+`prediction.txt` like MIND, or the starter repo's own plural
+`predictions.txt` default) is also still unconfirmed — `generate_predictions`
+currently uses the plural form, inferred from
+`ebrec.utils._python.write_submission_file`'s own default argument, not
+from a direct read of the competition's guidelines.
+
+## 4. Prediction generator
+
+`generate_predictions(dataset, method, split="test") -> Path`, implemented
+for all three dataset tracks (`src/generate_predictions.ipynb` +
+`generate_predictions.py`) — `ebnerd_small`'s zip is generated for local
+completeness only and is **not** submitted to Codabench, since it isn't a
+separate competition track (see #3's `ebnerd_testset.zip` finding — the real
+EB-NeRD competition scores that, not `ebnerd_small`). Reuses Q4's `score_inview_fn` adapter per
+impression (same re-ranking framing as Q4's AUC/MRR/nDCG, not Q2/Q3's
+full-catalog retrieval), computes per-position ranks via
+`argsort(argsort(-scores)) + 1` over `article_ids_inview`'s original order,
+strips the dataset namespace prefix from `impression_id` to recover the
+native ID, and writes the dataset's submission filename (`prediction.txt`
+for MIND, `predictions.txt` for EB-NeRD — see #2/#3) + zips it. Ranks are
+computed in a `user_id`-sorted order for the BM25 adapter's cache efficiency
+(same trick as Q4's
+evaluation loop), but written back out in `behaviors.parquet`'s **existing
+row order** (itself unmodified from the raw MINDsmall files by Q1's
+pipeline) — row order must match the source file exactly, per #2's
+confirmed guideline. `method` selects whichever of
+embeddings, on both datasets), or both if the design note wants to show a
+comparison.
+
+## 5. Registration
+
+Manual, one-time action per competition — not implementable. Leaderboard
+screenshots go into the design note (Q6) once submitted.
 
 # Q6 — Design Note
 
