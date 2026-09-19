@@ -435,16 +435,4 @@ AUC} on the leaderboard itself. That is a before-and-after measured by the
 organisers rather than by this project's own harness, and it is consistent in
 direction with the $+0.0979$ held-out gain.
 
-One operational note belongs here, since it cost more time than any modelling
-decision. Codabench dispatches jobs to a participant-run compute worker, and
-the current server encodes the submission secret in kombu 5.x's wrapper format
-while naming bundles per phase, so every published worker image disagrees with
-one or both conventions. This worker logged 26 failed status updates out of 26
-attempts across 14 jobs and three weeks, each failing before the submission
-file was downloaded. Three jobs did reach the running state, which is why the
-affected submissions sat as submitted rather than erroring outright. Since the
-queue is shared between participants, A1's one scored EB-NeRD entry was
-handled by another participant's worker. Three one-line compatibility shims
-produced the first successful run in this worker's history.
-
 \end{document}
