@@ -196,7 +196,20 @@ dataset & split & baseline & masked\_uniform & recency \\
 \end{tabular}
 \caption{Per-impression AUC, 200,000 impressions per split, identical
 impressions across variants.}
+\label{tab:nrms-ablation}
 \end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{nrms_ablation.png}
+\caption{The three arms of Table~\ref{tab:nrms-ablation} drawn to a common
+axis, with per-impression bootstrap error bars. The panels are on the same
+scale, so the visible fact is that every arm sits well above the 0.5 chance
+line while the widest gap between any two arms is 0.0072 AUC on EB-NeRD and
+0.0135 on MIND, which is why the paired intervals of
+Figure~\ref{fig:nrms-ci} rather than the point estimates carry the argument.}
+\label{fig:nrms-ablation}
+\end{figure}
 
 On MIND the improvement is confirmed, since all four metrics on both splits
 give a paired 95\% interval that excludes zero and is positive, with
@@ -205,7 +218,21 @@ $\Delta$AUC of $+0.0080$ $[+0.0071, +0.0090]$ on val and $+0.0042$ $[+0.0033,
 $[+0.0046, +0.0066]$ but test does not, with AUC and nDCG@5 indistinguishable
 from zero and MRR and nDCG@10 significantly negative. It is reported as such,
 so the assignment's bar is met for MIND on both splits and for EB-NeRD on val
-only.
+only. Figure~\ref{fig:nrms-ci} shows all six paired comparisons at once, and
+the colouring is the reading of the section, since MIND's
+\code{baseline\,$\to$\,recency} interval is clear of zero on both splits while
+EB-NeRD's is clear of zero on val alone.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{nrms_paired_ci.png}
+\caption{Paired bootstrap 95\% intervals on the AUC difference for each
+pairwise step of the ablation, on both splits. An interval drawn in blue
+excludes zero and one drawn in red does not. The two middle rows of each panel
+are what separates the padding mask from the recency signal, and they point in
+opposite directions on the two datasets.}
+\label{fig:nrms-ci}
+\end{figure}
 
 What the middle variant buys is the reason why. Isolating recency from the
 padding mask it also introduces, the two datasets attribute the same headline
@@ -230,8 +257,7 @@ the last calendar day of the training split, and EB-NeRD's 07:00 cutoff leaves
 that rule only 3.8\% of the training sample to monitor on, against MIND's
 25.4\%. A stopping signal computed on a twenty-fifth of the data is a
 plausible cause of a variant that confirms on val and not on test, and it is
-not something the ablation design can separate. The supporting figures are
-\code{nrms\_ablation.png} and \code{nrms\_paired\_ci.png}.
+not something the ablation design can separate.
 
 \subsection{Serving and Scale Analysis (Q4)}
 \label{sec:serving}
